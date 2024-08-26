@@ -255,7 +255,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 // Main rasterization method. Collaboratively works on one tile per
 // block, each thread treats one pixel. Alternates between fetching 
 // and rasterizing data.
-template <uint32_t CHANNELS>
+template <uint32_t CHANNELS, uint32_t SCHANNELS>
 __global__ void __launch_bounds__(BLOCK_X * BLOCK_Y)
 renderCUDA(
 	const uint2* __restrict__ ranges,
@@ -264,6 +264,7 @@ renderCUDA(
 	float focal_x, float focal_y,
 	const float2* __restrict__ points_xy_image,
 	const float* __restrict__ features,
+	const float* __restrict__ semantics,
 	const float* __restrict__ transMats,
 	const float* __restrict__ depths,
 	const float4* __restrict__ normal_opacity,
@@ -271,6 +272,7 @@ renderCUDA(
 	uint32_t* __restrict__ n_contrib,
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color,
+	float* __restrict__ out_semantics,
 	float* __restrict__ out_others)
 {
 	// Identify current tile and associated min/max pixel range.
@@ -305,6 +307,7 @@ renderCUDA(
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
+	float Sem[SCHANNELS] = {0};
 
 
 #if RENDER_AXUTILITY
@@ -411,6 +414,8 @@ renderCUDA(
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * w;
+			for (int ch = 0; ch < SCHANNELS; ch++)
+				Sem[ch] += semantics[collected_id[j] * SCHANNELS + ch] * w;
 			T = test_T;
 
 			// Keep track of last range entry to update this
@@ -427,6 +432,8 @@ renderCUDA(
 		n_contrib[pix_id] = last_contributor;
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
+		for (int ch = 0; ch < SCHANNELS; ch++)
+			out_others[ch * H * W + pix_id] = Sem[ch];
 
 #if RENDER_AXUTILITY
 		n_contrib[pix_id + H * W] = median_contributor;
@@ -450,6 +457,7 @@ void FORWARD::render(
 	float focal_x, float focal_y,
 	const float2* means2D,
 	const float* colors,
+	const float* semantics,
 	const float* transMats,
 	const float* depths,
 	const float4* normal_opacity,
@@ -457,15 +465,17 @@ void FORWARD::render(
 	uint32_t* n_contrib,
 	const float* bg_color,
 	float* out_color,
+	float* out_semantics,
 	float* out_others)
 {
-	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
+	renderCUDA<NUM_CHANNELS, SEM_CHANNELS> << <grid, block >> > (
 		ranges,
 		point_list,
 		W, H,
 		focal_x, focal_y,
 		means2D,
 		colors,
+		semantics,
 		transMats,
 		depths,
 		normal_opacity,
@@ -473,6 +483,7 @@ void FORWARD::render(
 		n_contrib,
 		bg_color,
 		out_color,
+		out_semantics,
 		out_others);
 }
 

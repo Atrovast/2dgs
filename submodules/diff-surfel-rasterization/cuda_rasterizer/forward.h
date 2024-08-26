@@ -58,6 +58,7 @@ namespace FORWARD
 		float focal_x, float focal_y,
 		const float2* points_xy_image,
 		const float* features,
+		const float* semantics,
 		const float* transMats,
 		const float* depths,
 		const float4* normal_opacity,
@@ -65,6 +66,7 @@ namespace FORWARD
 		uint32_t* n_contrib,
 		const float* bg_color,
 		float* out_color,
+		float* out_semantics,
 		float* out_others);
 }
 

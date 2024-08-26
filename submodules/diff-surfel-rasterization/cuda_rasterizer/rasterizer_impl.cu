@@ -205,6 +205,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float* means3D,
 	const float* shs,
 	const float* colors_precomp,
+	const float* semantic_features,
 	const float* opacities,
 	const float* scales,
 	const float scale_modifier,
@@ -216,6 +217,7 @@ int CudaRasterizer::Rasterizer::forward(
 	const float tan_fovx, float tan_fovy,
 	const bool prefiltered,
 	float* out_color,
+	float* out_semantics,
 	float* out_others,
 	int* radii,
 	bool debug)
@@ -329,6 +331,7 @@ int CudaRasterizer::Rasterizer::forward(
 		focal_x, focal_y,
 		geomState.means2D,
 		feature_ptr,
+        semantic_features,
 		transMat_ptr,
 		geomState.depths,
 		geomState.normal_opacity,
@@ -336,6 +339,7 @@ int CudaRasterizer::Rasterizer::forward(
 		imgState.n_contrib,
 		background,
 		out_color,
+		out_semantics,
 		out_others), debug)
 
 	return num_rendered;
@@ -350,6 +354,7 @@ void CudaRasterizer::Rasterizer::backward(
 	const float* means3D,
 	const float* shs,
 	const float* colors_precomp,
+	const float* semantic_features,
 	const float* scales,
 	const float scale_modifier,
 	const float* rotations,
@@ -363,11 +368,13 @@ void CudaRasterizer::Rasterizer::backward(
 	char* binning_buffer,
 	char* img_buffer,
 	const float* dL_dpix,
+	const float* dL_dpixsem,
 	const float* dL_depths,
 	float* dL_dmean2D,
 	float* dL_dnormal,
 	float* dL_dopacity,
 	float* dL_dcolor,
+	float* dL_dsemantics,
 	float* dL_dmean3D,
 	float* dL_dtransMat,
 	float* dL_dsh,
@@ -407,17 +414,20 @@ void CudaRasterizer::Rasterizer::backward(
 		geomState.means2D,
 		geomState.normal_opacity,
 		color_ptr,
+		semantic_features,
 		transMat_ptr,
 		depth_ptr,
 		imgState.accum_alpha,
 		imgState.n_contrib,
 		dL_dpix,
+		dL_dpixsem,
 		dL_depths,
 		dL_dtransMat,
 		(float3*)dL_dmean2D,
 		dL_dnormal,
 		dL_dopacity,
-		dL_dcolor), debug)
+		dL_dcolor,
+		dL_dsemantics), debug)
 
 	// Take care of the rest of preprocessing. Was the precomputed covariance
 	// given to us or a scales/rot pair? If precomputed, pass that. If not,
