@@ -47,6 +47,8 @@ class ParamGroup:
 class ModelParams(ParamGroup): 
     def __init__(self, parser, sentinel=False):
         self.sh_degree = 3
+        self.embedding_dim = 10
+        self.feature_dim = 256
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
@@ -92,6 +94,14 @@ class OptimizationParams(ParamGroup):
         self.densify_from_iter = 500
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.0002
+
+        self.sem_start_iter = 0
+        self.position_finetune = False
+        self.feature_finetune = False
+        self.opacity_finetune = False
+        self.scaling_finetune = False
+        self.rotation_finetune = False
+        self.semantic_finetune = True
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
