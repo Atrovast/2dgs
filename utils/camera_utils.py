@@ -48,10 +48,20 @@ def loadCam(args, id, cam_info, resolution_scale):
         loaded_mask = None
         gt_image = resized_image_rgb
 
+    if hasattr(cam_info, 'semantic') and cam_info.semantic is not None:
+        # resized_semantic = torch.nn.functional.interpolate(cam_info.semantic.unsqueeze(0), size=resolution[::-1], mode='bilinear').squeeze(0)
+        resized_semantic = cam_info.semantic
+        semantic_path = cam_info.semantic_path
+    else:
+        resized_semantic = None
+        semantic_path = None
+
     return Camera(colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, 
                   image=gt_image, gt_alpha_mask=loaded_mask,
-                  image_name=cam_info.image_name, uid=id, data_device=args.data_device)
+                  image_name=cam_info.image_name, uid=id,
+                  semantic=resized_semantic, semantic_name=semantic_path,
+                  data_device=args.data_device)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []

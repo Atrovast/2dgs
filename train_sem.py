@@ -15,25 +15,54 @@ from random import randint
 from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render, network_gui
 import sys
-from scene import Scene, GaussianModel
+from scene import Scene, GaussianModel, SemanticModel
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr, render_net_image
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+from torch.nn.functional import softmax, cosine_similarity, log_softmax
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
 except ImportError:
     TENSORBOARD_FOUND = False
 
+
+def kmeans(x, ncluster, niter=10):
+    '''
+    x : torch.tensor(data_num,data_dim)
+    ncluster : The number of clustering for data_num
+    niter : Number of iterations for kmeans
+    '''
+    N, D = x.size()
+    x /= x.norm(dim=1, keepdim=True)  # normalize each data point
+    centers = x[torch.randperm(N)[:ncluster]]  # init clusters at random
+    for _ in range(niter):
+        centers /= centers.norm(dim=1, keepdim=True)
+        distances = x @ centers.T
+        assignments = distances.argmax(1)
+        # move each codebook element to be the mean of the pixels that assigned to it
+        centers = torch.stack([x[assignments == k].mean(0) for k in range(ncluster)])
+        # re-assign any poorly positioned codebook elements
+        nanix = torch.any(torch.isnan(centers), dim=1)
+        ndead = nanix.sum().item()
+        # print('done step %d/%d, re-initialized %d dead clusters' % (i+1, niter, ndead))
+        centers[nanix] = x[torch.randperm(N)[:ndead]]  # re-init dead clusters
+    return centers
+
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, dataset.embedding_dim)
+    decoder = SemanticModel(dim_in=dataset.sem_dim, dim_out=dataset.tab_len, num_layer=1, use_bias=True)
+    dec_opt = torch.optim.Adam(decoder.parameters(), lr=0.003)
+    lut = torch.nn.Parameter(torch.rand((dataset.tab_len, dataset.ape_dim), device="cuda", requires_grad=True) * 0.03)
+    lut_opt = torch.optim.Adam([lut], lr=0.001)
     scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt)
+    gaussians.finetune_sh_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -43,6 +72,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
+
+    # count kmeans time
+    iter_start.record()
+    tot = torch.cat(
+        [kmeans(x.semantic['ape'].permute(1, 2, 0).reshape(-1, dataset.ape_dim).unique(dim=0).cuda(), 80) for x in
+         scene.getTrainCameras()[::8]], 0)
+    tot_k = kmeans(tot, dataset.tab_len)
+    lut.data = tot_k.float().clone().detach().requires_grad_(True)
+    del tot
+    iter_end.record()
+    print(f"Kmeans time: {iter_start.elapsed_time(iter_end) / 1000:.2f}s")
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
@@ -67,7 +107,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
         
         render_pkg = render(viewpoint_cam, gaussians, pipe, background)
-        image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+        image, embd_feature, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg[
+            "semantics"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
         Ll1 = l1_loss(image, gt_image)
@@ -78,14 +119,40 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         lambda_dist = opt.lambda_dist if iteration > 3000 else 0.0
 
         rend_dist = render_pkg["rend_dist"]
-        rend_normal  = render_pkg['rend_normal']
+        rend_normal = render_pkg['rend_normal']
         surf_normal = render_pkg['surf_normal']
         normal_error = (1 - (rend_normal * surf_normal).sum(dim=0))[None]
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
+        # semantic loss
+        embd_feature = embd_feature.permute(1, 2, 0).reshape(-1, dataset.sem_dim)
+        sem_logit = decoder(embd_feature)
+        sem_label = softmax(sem_logit, dim=-1)  ###
+        gt_feature = viewpoint_cam.semantic['ape'].to("cuda").float()
+
+        gt_feature = gt_feature.permute(1, 2, 0).reshape(-1, dataset.ape_dim)
+        gt_feature /= gt_feature.norm(dim=1, keepdim=True)
+        lut_normed = lut / lut.norm(dim=1, keepdim=True)
+        sim = gt_feature @ lut_normed.T
+
+        sim_peak = sim.max(dim=1, keepdim=True)[0]
+        label = (sim == sim_peak).float().detach()
+        lab = torch.nn.MSELoss()(sem_label, label) * 50
+        sem_peak_resem = (1 - sim_peak.mean())
+        cossim_rec = 1 - cosine_similarity(lut[sem_label.argmax(-1)], gt_feature, dim=-1).mean()
+        t = 1 if iteration < 1000 else 2
+        anneal = sim * t
+        b = softmax(anneal, dim=1) * log_softmax(anneal, dim=1)
+        sem_label_ent = -1.0 * b.sum(dim=-1).mean()
+        # index = gtl.sum(-1).abs() > 0.002
+        # sem_loss = torch.nn.MSELoss()(sem_label[index], label[index]) + 1 - cosine_similarity(lut[sem_label.argmax(-1)][index], gtl[index], dim=-1).mean()
+        sem_loss = lab + sem_peak_resem + 0.3 * sem_label_ent + cossim_rec
+        if iteration % 100 == 1:
+            print(f"iter {iteration}, sem_loss: {sem_loss:.6f}. {lab:.6f}, {sem_peak_resem:.6f},{sem_label_ent:.4f} {cossim_rec:.5f},{sim_peak.min()} {torch.unique(label.argmax(dim=1)).shape[0]}")
+
         # loss
-        total_loss = loss + dist_loss + normal_loss
+        total_loss = loss + dist_loss + normal_loss   + sem_loss
         
         total_loss.backward()
 
@@ -120,6 +187,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
+                decoder.save(os.path.join(scene.model_path, f'point_cloud/iteration_{iteration}', "decoder.pt"))
+                torch.save(lut, os.path.join(scene.model_path, f'point_cloud/iteration_{iteration}', "LUT.pt"))
 
 
             # Densification
@@ -138,6 +207,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
                 gaussians.optimizer.zero_grad(set_to_none = True)
+                dec_opt.step()
+                dec_opt.zero_grad(set_to_none = True)
+                lut_opt.step()
+                lut_opt.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
