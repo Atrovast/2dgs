@@ -93,14 +93,12 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             shs = pc.get_features
     else:
         colors_precomp = override_color
-    semantics = pc.get_semantics
-
-    rendered_image, rendered_sem, radii, allmap = rasterizer(
+    
+    rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
         colors_precomp = colors_precomp,
-        semantics = semantics,
         opacities = opacity,
         scales = scales,
         rotations = rotations,
@@ -109,8 +107,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    rets = {"render": rendered_image,
-            "semantics": rendered_sem,
+    rets =  {"render": rendered_image,
             "viewspace_points": means2D,
             "visibility_filter" : radii > 0,
             "radii": radii,

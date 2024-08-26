@@ -18,7 +18,6 @@ from scene.colmap_loader import read_extrinsics_text, read_intrinsics_text, qvec
 from utils.graphics_utils import getWorld2View2, focal2fov, fov2focal
 import numpy as np
 import json
-import torch
 from pathlib import Path
 from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
@@ -35,8 +34,6 @@ class CameraInfo(NamedTuple):
     image_name: str
     width: int
     height: int
-    semantic: torch.Tensor = None
-    semantic_path: str = None
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -101,12 +98,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
         image_name = os.path.basename(image_path).split(".")[0]
         image = Image.open(image_path)
 
-        sem_path = os.path.join(images_folder, f'../clip_feat/{image_name}.pt')
-        semantic = torch.load(sem_path).cpu()
-
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                              image_path=image_path, image_name=image_name, width=width, height=height,
-                              semantic=semantic, semantic_path=sem_path)
+                              image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
@@ -220,12 +213,8 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             FovY = fovy 
             FovX = fovx
 
-            semantic_path = os.path.join(path, f'clip_feat/{idx + 1}.pt')
-            semantic = torch.load(semantic_path)
-
             cam_infos.append(CameraInfo(uid=idx, R=R, T=T, FovY=FovY, FovX=FovX, image=image,
-                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1],
-                            semantic=semantic, semantic_path=semantic_path))
+                            image_path=image_path, image_name=image_name, width=image.size[0], height=image.size[1]))
             
     return cam_infos
 
