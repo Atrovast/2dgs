@@ -431,7 +431,7 @@ renderCUDA(
 		for (int ch = 0; ch < CHANNELS; ch++)
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
 		for (int ch = 0; ch < SCHANNELS; ch++)
-			out_others[ch * H * W + pix_id] = Sem[ch];
+			out_semantics[ch * H * W + pix_id] = Sem[ch];
 
 #if RENDER_AXUTILITY
 		n_contrib[pix_id + H * W] = median_contributor;
