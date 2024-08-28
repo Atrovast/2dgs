@@ -57,11 +57,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, dataset.embedding_dim)
-    decoder = SemanticModel(dim_in=dataset.sem_dim, dim_out=dataset.tab_len, num_layer=1, use_bias=True)
+    decoder = SemanticModel(dim_in=dataset.embedding_dim, dim_out=dataset.tab_len, num_layer=1, use_bias=True)
     dec_opt = torch.optim.Adam(decoder.parameters(), lr=0.003)
-    lut = torch.nn.Parameter(torch.rand((dataset.tab_len, dataset.ape_dim), device="cuda", requires_grad=True) * 0.03)
+    lut = torch.nn.Parameter(torch.rand((dataset.tab_len, dataset.feature_dim), device="cuda", requires_grad=True) * 0.03)
     lut_opt = torch.optim.Adam([lut], lr=0.001)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, 1)
     gaussians.finetune_sh_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -76,7 +76,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     # count kmeans time
     iter_start.record()
     tot = torch.cat(
-        [kmeans(x.semantic['ape'].permute(1, 2, 0).reshape(-1, dataset.ape_dim).unique(dim=0).cuda(), 80) for x in
+        [kmeans(x.semantic.permute(1, 2, 0).reshape(-1, dataset.feature_dim).unique(dim=0).cuda(), 80) for x in
          scene.getTrainCameras()[::8]], 0)
     tot_k = kmeans(tot, dataset.tab_len)
     lut.data = tot_k.float().clone().detach().requires_grad_(True)
@@ -126,12 +126,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         dist_loss = lambda_dist * (rend_dist).mean()
 
         # semantic loss
-        embd_feature = embd_feature.permute(1, 2, 0).reshape(-1, dataset.sem_dim)
+        embd_feature = embd_feature.permute(1, 2, 0).reshape(-1, dataset.embedding_dim)
         sem_logit = decoder(embd_feature)
         sem_label = softmax(sem_logit, dim=-1)  ###
-        gt_feature = viewpoint_cam.semantic['ape'].to("cuda").float()
+        gt_feature = viewpoint_cam.semantic.to("cuda").float()
 
-        gt_feature = gt_feature.permute(1, 2, 0).reshape(-1, dataset.ape_dim)
+        gt_feature = gt_feature.permute(1, 2, 0).reshape(-1, dataset.feature_dim)
         gt_feature /= gt_feature.norm(dim=1, keepdim=True)
         lut_normed = lut / lut.norm(dim=1, keepdim=True)
         sim = gt_feature @ lut_normed.T

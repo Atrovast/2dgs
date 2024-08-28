@@ -49,6 +49,7 @@ class ModelParams(ParamGroup):
         self.sh_degree = 3
         self.embedding_dim = 10
         self.feature_dim = 256
+        self.tab_len = 300
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
@@ -74,12 +75,13 @@ class PipelineParams(ParamGroup):
 
 class OptimizationParams(ParamGroup):
     def __init__(self, parser):
-        self.iterations = 30_000
+        self.iterations = 1500
         self.position_lr_init = 0.00016
         self.position_lr_final = 0.0000016
         self.position_lr_delay_mult = 0.01
         self.position_lr_max_steps = 30_000
         self.feature_lr = 0.0025
+        self.semantic_lr = 0.005
         self.opacity_lr = 0.05
         self.scaling_lr = 0.005
         self.rotation_lr = 0.001
@@ -91,8 +93,8 @@ class OptimizationParams(ParamGroup):
 
         self.densification_interval = 100
         self.opacity_reset_interval = 3000
-        self.densify_from_iter = 500
-        self.densify_until_iter = 15_000
+        self.densify_from_iter = 0
+        self.densify_until_iter = 0
         self.densify_grad_threshold = 0.0002
 
         self.sem_start_iter = 0
