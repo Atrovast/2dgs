@@ -92,3 +92,39 @@ def camera_to_JSON(id, camera : Camera):
         'fx' : fov2focal(camera.FovX, camera.width)
     }
     return camera_entry
+
+def interpolate_transform_matrices(matrices, num_samples, times=None):
+    """
+    对4x4变换矩阵进行插值,通过提取和插值四元数和平移向量。
+    插值是在每两个位姿之间进行的，并将所有的插值结果汇总为一个综合的结果。
+    
+    :param matrices: 包含4x4变换矩阵的列表
+    :param times: 对应于每个位姿的时间戳列表
+    :param num_samples: 想要生成的插值样本数
+    :return: 插值后的4x4变换矩阵列表
+    """
+    
+    if times is None:
+        times = np.linspace(0, len(matrices) - 1, len(matrices))  # Default time intervals
+
+    translations = np.array([mat[:3, 3] for mat in matrices])
+    quaternions = np.array([tfs.quaternion_from_matrix(mat) for mat in matrices])
+
+    interpolated_matrices = []
+
+    # 对每一对相邻位姿进行插值，并确保包含段的结束点
+    for i in range(len(matrices) - 1):
+        # 设置endpoint为False以避免在两段之间重复插值点
+        endpoint = False if i < len(matrices) - 2 else True
+        local_times = np.linspace(times[i], times[i+1], num_samples, endpoint=endpoint)
+        local_translations = interp1d(times[i:i+2], translations[i:i+2], axis=0)(local_times)
+        local_quaternions = [tfs.quaternion_slerp(quaternions[i], quaternions[i+1], (t-times[i])/(times[i+1]-times[i])) for t in local_times]
+
+        # 创建插值后的矩阵
+        for trans, quat in zip(local_translations, local_quaternions):
+            mat = np.eye(4)
+            mat[:3, :3] = tfs.quaternion_matrix(quat)[:3, :3]
+            mat[:3, 3] = trans
+            interpolated_matrices.append(mat.astype(np.float32))
+
+    return interpolated_matrices

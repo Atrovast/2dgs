@@ -1,0 +1,17 @@
+
+目前有五个文件
+main_edit_move.py
+    提取，移动，删除
+main_edit.py
+    编辑，包括delete，group，sds
+main_eval_for_inter_pose.py
+    读取数据集mask并相机插值
+main_eval.py
+    读取数据集mask并eval
+main_test.py
+    读取场景，渲染，相机插值，输出video
+
+scripy_for_exp中有两个文件：
+    用于实验的脚本
+    main_test_forclip.py   
+    main_test_for_replica.py
