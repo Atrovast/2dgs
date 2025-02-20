@@ -1,3 +1,6 @@
+[submodule "submodules/diff-surfel-rasterization"]
+	path = submodules/diff-surfel-rasterization
+	url = https://github.com/Atrovast/diff-surfel-rasterization
 [submodule "submodules/simple-knn"]
 	path = submodules/simple-knn
 	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
